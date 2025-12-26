@@ -13,12 +13,15 @@ import { SeatsModule } from './seats/seats.module';
 import { BookingModule } from './booking/booking.module';
 import { PaymentModule } from './payment/payment.module';
 import { ShowseatModule } from './showseat/showseat.module';
+import { RedisModule } from './redis/redis.module';
+import { EmailModule } from './email/email.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    RedisModule,
 
     TypeOrmModule.forRoot({
       type: 'postgres',
@@ -48,6 +51,8 @@ import { ShowseatModule } from './showseat/showseat.module';
     PaymentModule,
 
     ShowseatModule,
+
+    EmailModule,
   ],
   controllers: [AppController],
   providers: [AppService,DatabaseLogger],

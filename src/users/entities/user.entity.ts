@@ -7,6 +7,7 @@ import {
   Index,
 } from 'typeorm';
 import { UserRole } from '../../common/enum/role.enum';
+import { LoginType } from '../../common/enum/login.status.enum';
 
 @Entity('users')
 export class User {
@@ -17,11 +18,21 @@ export class User {
   @Index()
   email: string;
 
-  @Column()
-  passwordHash: string;
+  @Column({ type: 'text', nullable: true })
+  passwordHash: string | null;
+
+  @Column({
+    type: 'enum',
+    enum: LoginType,
+    default: LoginType.PASSWORD,
+  })
+  loginType: LoginType;
 
   @Column({ type: 'enum', enum: UserRole, default: UserRole.USER })
   role: UserRole;
+
+   @Column({ default: false })
+  isVerified: boolean;
 
   @Column({ default: true })
   isActive: boolean;

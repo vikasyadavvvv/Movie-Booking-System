@@ -1,9 +1,21 @@
 import { Module } from '@nestjs/common';
-import { UsersService } from './users.service';
-import { UsersController } from './users.controller';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { JwtModule } from '@nestjs/jwt';
+
+import { AuthService } from './users.service';
+import { AuthController } from './users.controller';
+import { User } from './entities/user.entity';
+import { RedisModule } from '../redis/redis.module';
+import { EmailModule } from 'src/email/email.module';
 
 @Module({
-  controllers: [UsersController],
-  providers: [UsersService],
+  imports: [
+    TypeOrmModule.forFeature([User]), 
+    RedisModule,                   
+    JwtModule,  
+    EmailModule                
+  ],
+  controllers: [AuthController],
+  providers: [AuthService],
 })
 export class UsersModule {}

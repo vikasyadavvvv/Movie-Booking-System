@@ -6,16 +6,16 @@ async function bootstrap() {
   console.log('🚀 Starting application...');
 
   const app = await NestFactory.create(AppModule);
-  console.log('✅ Nest application created');
+  // console.log('✅ Nest application created');
 
   const dataSource = app.get(DataSource);
 
   if (!dataSource.isInitialized) {
-    console.log('🔌 Initializing database connection...');
+    // console.log('🔌 Initializing database connection...');
     await dataSource.initialize();
   }
 
-  console.log('📦 Running database migrations...');
+  // console.log('📦 Running database migrations...');
   const migrations = await dataSource.runMigrations();
 
   if (migrations.length === 0) {
@@ -30,7 +30,7 @@ async function bootstrap() {
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
 
-  console.log(`🌍 Server running on port ${port}`);
+  // console.log(`🌍 Server running on port ${port}`);
 }
 
 bootstrap().catch(err => {
