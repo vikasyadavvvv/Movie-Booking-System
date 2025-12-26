@@ -32,7 +32,7 @@ export class AuthService {
 
     private readonly jwtService: JwtService,
     private readonly emailService: EmailService,
-  ) {}
+  ) { }
 
   /**
    * Generates a 6-digit OTP.
@@ -198,11 +198,36 @@ export class AuthService {
 
     let user = await this.userRepo.findOne({ where: { email } });
 
-    if (user && user.loginType !== LoginType.GOOGLE) {
-      this.logger.warn(`Google login blocked: password account exists (${email})`);
-      throw new UnauthorizedException('Use password login');
+    /**
+     * CASE 1: User exists and was created via PASSWORD
+     * → Link Google login instead of blocking
+     */
+    if (user && user.loginType === LoginType.PASSWORD) {
+      this.logger.log(`Linking Google login to existing password account (${email})`);
+
+      // Link Google as login method
+      user.loginType = LoginType.GOOGLE;
+      // OR better: move to auth_identities table (future improvement)
+
+      // Mark verified because Google email is trusted
+      user.isVerified = true;
+
+      await this.userRepo.save(user);
+
+      return this.issueToken(user);
     }
 
+    /**
+     * CASE 2: User exists and is already a Google user
+     */
+    if (user && user.loginType === LoginType.GOOGLE) {
+      this.logger.log(`Existing Google user logged in (${email})`);
+      return this.issueToken(user);
+    }
+
+    /**
+     * CASE 3: Brand new user via Google
+     */
     if (!user) {
       user = this.userRepo.create({
         email,
@@ -212,10 +237,10 @@ export class AuthService {
       });
 
       await this.userRepo.save(user);
-      this.logger.log(`New Google user created (${email})`);
-    }
 
-    return this.issueToken(user);
+      this.logger.log(`New Google user created (${email})`);
+      return this.issueToken(user);
+    }
   }
 
   /**
@@ -223,14 +248,102 @@ export class AuthService {
    * - Keep payload minimal
    * - Never store sensitive data
    */
-  private issueToken(user: User) {
+  private async issueToken(user: User) {
     const payload = {
       sub: user.id,
       role: user.role,
     };
 
+    // short-lived access token
+    const accessToken = this.jwtService.sign(payload, {
+      expiresIn: '15m',
+    });
+
+    // long-lived refresh token
+    const refreshToken = this.jwtService.sign(
+      { sub: user.id },
+      { expiresIn: '30d' },
+    );
+
+    // store refresh token hash in Redis
+    const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
+
+    await this.redis.set(
+      `refresh:${user.id}`,
+      refreshTokenHash,
+      'EX',
+      60 * 60 * 24 * 30, // 30 days
+    );
+
     return {
-      accessToken: this.jwtService.sign(payload),
+      accessToken,
+      refreshToken,
     };
   }
+
+  async refreshToken(userId: number, refreshToken: string) {
+    /**
+     * STEP 1: Fetch stored refresh token hash from Redis
+     *
+     * - Refresh tokens are stored server-side (Redis)
+     * - This is what makes logout and session invalidation possible
+     * - If nothing is found:
+     *   → user logged out
+     *   → token expired
+     *   → Redis was cleared
+     */
+    const storedHash = await this.redis.get(`refresh:${userId}`);
+
+    if (!storedHash) {
+      // No active session exists for this user
+      throw new UnauthorizedException('Session expired');
+    }
+
+    /**
+     * STEP 2: Validate refresh token
+     *
+     * - Compare provided refresh token with stored hash
+     * - Prevents stolen or forged refresh tokens from being used
+     * - Hashing protects tokens even if Redis is compromised
+     */
+    const isValid = await bcrypt.compare(refreshToken, storedHash);
+
+    if (!isValid) {
+      // Token does not match → possible theft or tampering
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    /**
+     * STEP 3: Load user from database
+     *
+     * - Ensure user still exists
+     * - Ensure account is active (not banned / disabled)
+     * - Protects against access after account deactivation
+     */
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+
+    if (!user || !user.isActive) {
+      // User deleted or disabled after token issuance
+      throw new UnauthorizedException();
+    }
+
+    /**
+     * STEP 4: Issue fresh tokens
+     *
+     * - Old access token is already expired
+     * - New access token allows user to continue session
+     * - New refresh token rotation can be added here later
+     */
+    return this.issueToken(user);
+  }
+
+
+
+  //Logout 
+  async logout(userId: number) {
+    await this.redis.del(`refresh:${userId}`);
+    return { message: 'Logged out successfully' };
+  }
+
+
 }
